@@ -1,0 +1,75 @@
+id: account_data_reallocation
+title: Account Data Reallocation and Type Confusion Exploit
+severity: high
+tactic: privilege_escalation
+technique: account_realloc_abuse
+first_observed: 2023-01
+chain: solana
+affected_programs:
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Realloc syscall changes account data length with payer funded rent adjustment.
+  - program_id: BPFLoaderUpgradeab1e11111111111111111111111
+    role: loader
+    name: BPF Upgradeable Loader
+    notes: Upgradeable programs may realloc program data accounts during migration flows.
+prerequisites:
+  - Program uses realloc to grow account without revalidating account type discriminator.
+  - Attacker supplies account that transitions from small config to large buffer with new fields uninitialized.
+  - Owner check passes on account before realloc but type confusion after size change.
+  - Zero initialization missing on newly allocated bytes allowing stale memory interpretation.
+attack_surface:
+  - instruction_handler
+  - account_validation
+  - upgrade_authority
+indicators:
+  on_chain:
+    - Realloc instruction increasing account size followed by privilege field write in same tx.
+    - Account discriminator overwritten after realloc due to overlapping struct layout.
+    - Config account grows from user tier to admin tier size class without migration guard.
+    - Multiple realloc calls in one transaction pushing account near max size limit.
+  off_chain:
+    - Anchor account resize without init_if_needed on new fields flagged in audit.
+    - Fuzz harness triggers admin capability on previously user scoped account.
+  account_layout:
+    - Account data length change between simulation and execution snapshots.
+    - Writable realloc on shared account used across multiple instruction handlers.
+  instruction_discriminators:
+    - System realloc via program syscall
+    - Anchor AccountInfo realloc
+reproduction_notes: >
+  Build Anchor program with UserConfig account and AdminConfig account sharing handler entry.
+  Allow realloc from UserConfig size to AdminConfig size when user pays rent delta without role
+  check. After realloc, write admin flag into newly exposed bytes. Invoke as normal user signer.
+  Confirm privilege escalation. Patch with separate account types, migration instruction with admin
+  signer, and zero init on new bytes. Test max size boundary behavior and compute cost of realloc.
+  Document interaction with zero copy accounts and stack overflow risks on deserialize.
+mitigation:
+  - Never realloc across account type boundaries; use explicit migration instruction.
+  - Zero initialize all new bytes after realloc before reading as typed fields.
+  - Revalidate discriminator and owner after every realloc operation.
+  - Cap realloc size per instruction and per account lifetime.
+  - Fuzz account resize paths with structured account parsers.
+detection_queries:
+  - "account_realloc AND role_field_write_same_tx AND signer_not_admin"
+  - "account_size_change > 2x AND discriminator_mismatch"
+related_entries:
+  - close_account_lamport_theft
+  - sysvar_account_spoofing
+  - program_upgrade_hijack
+references:
+  - type: program_source
+    value: https://github.com/coral-xyz/anchor/pull/2420
+    label: Anchor realloc feature discussion
+  - type: academic
+    value: https://docs.solana.com/developing/programming-model/accounts#reallocating
+    label: Solana account reallocation documentation
+  - type: audit
+    value: https://github.com/coral-xyz/sealevel-attacks
+    label: Sealevel attacks catalog
+tags:
+  - realloc
+  - type_confusion
+  - anchor
+  - account_validation

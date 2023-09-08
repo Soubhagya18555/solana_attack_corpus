@@ -1,0 +1,75 @@
+id: alt_lookup_swap
+title: Address Lookup Table Content Swap Before Execution
+severity: critical
+tactic: defense_evasion
+technique: alt_table_swap
+first_observed: 2023-04
+chain: solana
+affected_programs:
+  - program_id: AddressLookupTab1111111111111111111111111
+    role: dependency
+    name: Address Lookup Table Program
+    notes: Attacker mutates ALT account entries between user preview and transaction landing.
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Used to extend or deactivate lookup tables in the same slot window.
+prerequisites:
+  - Victim wallet previews v0 transaction resolving ALT indices to benign accounts.
+  - Attacker controls or can mutate the lookup table authority before execution.
+  - Wallet does not re-resolve ALT contents at signing or broadcast time.
+  - User approves transaction based on stale resolved account list.
+attack_surface:
+  - client_ui
+  - rpc_simulation_gap
+  - account_validation
+indicators:
+  on_chain:
+    - ExtendLookupTable or DeactivateLookupTable instruction in slot immediately before victim v0 transaction.
+    - Same ALT pubkey referenced in message address_table_lookups with different resolved accounts across consecutive slots.
+    - v0 transaction where resolved writable accounts differ from simulation snapshot at preview blockhash.
+    - Drain program ID appears only after ALT extension, not in initial static account keys.
+  off_chain:
+    - Wallet UI shows abbreviated account list without ALT resolution timestamp.
+    - User report of approved swap that executed as token transfer to unknown ATA.
+  account_layout:
+    - Writable flag set on ALT resolved account that was read-only at preview.
+    - Signer bitmap includes ALT index account promoted to signer role post mutation.
+  instruction_discriminators:
+    - ALT ExtendLookupTable instruction index 2
+    - ALT DeactivateLookupTable instruction index 3
+reproduction_notes: >
+  On devnet, create an ALT owned by attacker with benign token program and user ATA indices. Build a
+  v0 transaction that swaps tokens using those indices. Show victim a preview resolving to expected
+  DEX accounts. Before broadcast, submit ExtendLookupTable replacing index 1 with attacker drain
+  program and victim token ATA. Re-sign is not required if victim already signed message hash that
+  only references indices. Compare wallet behavior when re-fetching ALT at sign time versus trusting
+  cached resolution. Document slot delta between preview and execution. Do not test against third
+  party wallets on mainnet.
+mitigation:
+  - Re-resolve every ALT entry immediately before signing and again before broadcast.
+  - Display ALT authority pubkey and warn if authority is not a known protocol multisig.
+  - Pin ALT account data hash in signing payload metadata shown to user.
+  - Reject transactions referencing ALTs modified within N slots of preview blockhash.
+  - Simulation must use identical ALT state as execution RPC node at send time.
+detection_queries:
+  - "v0_tx AND lookup_table_modified_within_slots(slot_delta <= 2) AND token_outflow > threshold"
+  - "ExtendLookupTable WHERE table_used_in_pending_v0_tx_same_block"
+related_entries:
+  - nft_phishing_signature
+  - cpi_reentrancy
+references:
+  - type: program_source
+    value: https://github.com/anza-xyz/agave/tree/master/programs/address-lookup-table
+    label: Address Lookup Table program source
+  - type: block_explorer
+    value: https://solscan.io/account/AddressLookupTab1111111111111111111111111
+    label: ALT program on Solscan
+  - type: academic
+    value: https://docs.solana.com/developing/versioned-transactions
+    label: Solana versioned transaction documentation
+tags:
+  - versioned_tx
+  - alt
+  - blind_signing
+  - wallet_security
