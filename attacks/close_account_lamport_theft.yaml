@@ -1,0 +1,76 @@
+id: close_account_lamport_theft
+title: Close Account Lamport Redirection and Vault Drain
+severity: critical
+tactic: impact
+technique: close_account_abuse
+first_observed: 2021-05
+chain: solana
+affected_programs:
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: CloseAccount sends rent lamports to designated destination account.
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Native program accounts closed via assign and lamport drain patterns.
+prerequisites:
+  - Program allows CloseAccount or custom close with user chosen lamport destination.
+  - Vault or escrow PDA close instruction missing signer or state validation.
+  - Attacker passes attacker wallet as lamport recipient during authorized close path.
+  - Reinitialization not blocked after close leaving stale references in other accounts.
+attack_surface:
+  - instruction_handler
+  - account_validation
+  - pda_derivation
+  - cpi_boundary
+indicators:
+  on_chain:
+    - CloseAccount on protocol vault PDA with destination not matching treasury config.
+    - Account closed while still referenced as active escrow in open user position.
+    - Lamport destination differs from owner in same transaction batch close pattern.
+    - Reinit of same seed PDA after close accepting new malicious state.
+  off_chain:
+    - Audit finding on missing closed account discriminator check in Anchor zero copy accounts.
+    - User balances show zero while protocol UI still lists open position.
+  account_layout:
+    - Closed account passed as writable in subsequent instruction without init guard.
+    - Lamport recipient is signer not matching protocol fee receiver PDA.
+  instruction_discriminators:
+    - SPL Token CloseAccount opcode 9
+    - Anchor close account attribute misuse
+reproduction_notes: >
+  Deploy Anchor program with vault PDA holding user deposits. Implement close_vault instruction
+  that omits constraint on lamport destination or fails to require admin signer. Close vault sending
+  rent plus user deposits to attacker supplied account. Test reinitialization attack by closing and
+  recreating PDA with attacker controlled data while other accounts still reference old vault key.
+  Patch with init-if-needed guards, closed account discriminator, and fixed treasury destination.
+  Measure lamports at risk including accumulated protocol fees in rent heavy designs.
+mitigation:
+  - Send closed account lamports only to fixed treasury PDA or incinerator address.
+  - Require admin multisig for any vault close instruction.
+  - Set closed account discriminator and reject operations on closed accounts.
+  - Use init constraint preventing reinit of same PDA slot without explicit migration.
+  - Static analysis for CloseAccount CPI with dynamic destination parameter.
+detection_queries:
+  - "CloseAccount WHERE destination NOT IN protocol_treasury AND account_owner = victim_program"
+  - "PDA_reinit_same_seeds_within_slots(slot_delta < 10)"
+related_entries:
+  - authority_drain
+  - cpi_reentrancy
+  - sysvar_account_spoofing
+references:
+  - type: program_source
+    value: https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/close-account
+    label: Sealevel attacks close account pattern
+  - type: audit
+    value: https://github.com/coral-xyz/sealevel-attacks
+    label: Sealevel attacks repository
+  - type: program_source
+    value: https://github.com/coral-xyz/anchor
+    label: Anchor framework close account documentation
+tags:
+  - close_account
+  - lamport_theft
+  - pda
+  - vault

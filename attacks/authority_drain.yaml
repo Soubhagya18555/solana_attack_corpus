@@ -1,0 +1,74 @@
+id: authority_drain
+title: SPL Token Mint or Freeze Authority Drain
+severity: critical
+tactic: privilege_escalation
+technique: token_authority_abuse
+first_observed: 2021-08
+chain: solana
+affected_programs:
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Attacker invokes SetAuthority when victim program leaves mint authority on a PDA it cannot rotate.
+  - program_id: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+    role: token_program
+    name: Token 2022 Program
+    notes: Extended mint authorities and transfer hooks expand blast radius.
+prerequisites:
+  - Victim program retains mint_authority or freeze_authority on a token mint it no longer controls.
+  - Attacker can reach SetAuthority or MintTo without proper signer checks on the authority account.
+  - Optional stale PDA seeds after program upgrade or config migration.
+attack_surface:
+  - instruction_handler
+  - account_validation
+  - pda_derivation
+  - token_authority
+indicators:
+  on_chain:
+    - SetAuthority instruction targeting MintTokens or FreezeAccount authority type in same tx as large MintTo.
+    - Mint account owned by Token program with authority field pointing to closed or attacker-owned account.
+    - Burst of MintTo instructions followed by immediate swap or bridge outbound transfers.
+    - Authority rotation from protocol PDA to single-signature wallet within minutes of deployment.
+  off_chain:
+    - New token listing with identical metadata to established asset but different mint address.
+    - Social posts claiming "migration" requiring users to send tokens to a burner wallet.
+  account_layout:
+    - Mint account passed as writable without matching expected PDA bump in victim instruction.
+    - Authority account not marked signer when program logic assumes multisig control.
+  instruction_discriminators:
+    - SPL Token SetAuthority opcode 6
+    - SPL Token MintTo opcode 7
+reproduction_notes: >
+  Deploy a minimal Anchor program on devnet that initializes a mint with mint_authority set to a
+  program-derived address, then add an admin instruction that forgets to verify the incoming
+  authority matches the stored config PDA. Call SetAuthority from an unprivileged signer path or
+  pass a substitute mint account that shares layout but different pubkey. Confirm unlimited mint
+  via MintTo on local validator. Compare against patched programs that pin mint authority to
+  immutable null or multisig and reject SetAuthority at the application layer. Document account
+  metas and signer bitmap for each failing path.
+mitigation:
+  - Revoke mint and freeze authority to null pubkey after fixed supply token generation event.
+  - Store authority PDAs in validated config accounts; reject SetAuthority in application code.
+  - Use multisig (e.g. Squads) for any retained mint authority on production assets.
+  - Runtime monitors on SetAuthority for treasury mints; alert on authority field changes.
+  - Pre-deployment invariant tests asserting mint_authority equals expected PDA or null.
+detection_queries:
+  - "token_mint_authority_changed AND mint_supply_delta > threshold_within_1_slot"
+  - "SetAuthority(MintTokens) WHERE new_authority NOT IN protocol_allowlist"
+related_entries:
+  - unlimited_approve
+  - program_upgrade_hijack
+references:
+  - type: program_source
+    value: https://github.com/solana-labs/solana-program-library/tree/master/token/program
+    label: SPL Token program source
+  - type: block_explorer
+    value: https://solscan.io/instruction/SetAuthority
+    label: SetAuthority instruction index
+  - type: post_mortem
+    value: https://blog.neodyme.io/posts/lending_disclosure/
+    label: Neodyme lending disclosure (authority validation class)
+tags:
+  - spl_token
+  - mint_inflation
+  - pda_misconfiguration
