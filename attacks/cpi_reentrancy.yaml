@@ -1,0 +1,75 @@
+id: cpi_reentrancy
+title: Cross Program Invocation Reentrancy via Shared Account Mutation
+severity: critical
+tactic: defense_evasion
+technique: cpi_reentrancy
+first_observed: 2022-03
+chain: solana
+affected_programs:
+  - program_id: 4ryvWnLkVcrfs8DTFbEMgTMqDcqj9iqMqACbTdwNLpug
+    role: victim
+    name: Cashio stablecoin mint program
+    notes: February 2022 incident; collateral account state trusted without refresh after CPI.
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Token transfers mutate account balances visible to reentrant callers in same transaction.
+  - program_id: 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8
+    role: dependency
+    name: Raydium AMM v4
+    notes: Used in historical paths to swap inflated collateral within one atomic transaction.
+prerequisites:
+  - Victim program reads account lamports or token balances before CPI, assumes unchanged after CPI returns.
+  - Attacker program invoked via CPI can call back into victim with same accounts still marked writable.
+  - No reentrancy guard (depth counter or "already processed" flag) on sensitive state transitions.
+attack_surface:
+  - cpi_boundary
+  - account_validation
+  - instruction_handler
+indicators:
+  on_chain:
+    - Nested invoke depth exceeding typical protocol baseline for single user action.
+    - Identical victim instruction discriminator appearing twice in one transaction call stack.
+    - Collateral or vault token account balance drops between inner instruction log lines without corresponding debit in victim ledger.
+    - Mint instruction succeeds while collateral ATA balance insufficient on final post-execution state if validated only once.
+  off_chain:
+    - Audit reports citing "checks-effects-interactions" violations on Solana CPI paths.
+  account_layout:
+    - Attacker-controlled program ID present as CPI target between two calls to same victim instruction.
+    - Shared vault account writable in both outer and inner frames.
+  instruction_discriminators:
+    - Victim-specific mint or withdraw discriminators duplicated in invoke tree (protocol-dependent)
+reproduction_notes: >
+  Implement two programs on localnet: Victim mints receipt tokens against collateral ATA balance
+  checked at entry. Malicious program performs CPI into Victim mint, and in its callback CPIs into
+  Victim again or pulls collateral via SPL transfer before first invocation completes accounting.
+  Observe double mint or over-collateralized withdraw when state is read once. Patch with reentrancy
+  flag account or strict "refresh balances after every CPI" pattern. Contrast with Solana's lack of
+  synchronous reentrancy across transactions but intra-transaction account aliasing risks.
+mitigation:
+  - Apply checks-effects-interactions: update internal ledger before CPI; re-read all external balances after CPI returns.
+  - Maintain instruction depth or processed-bit on state accounts to reject duplicate entry.
+  - Minimize writable account overlap between trusted and untrusted programs in one instruction.
+  - Formal verification or MIRAE/Anchor invariant tests for CPI callback paths.
+  - Independent collateral oracle or TWAP rather than raw ATA balance snapshots mid-instruction.
+detection_queries:
+  - "invoke_depth > 3 AND duplicate_program_instruction(victim_id)"
+  - "mint_volume > collateral_balance_end_of_tx"
+related_entries:
+  - authority_drain
+  - flash_loan_governance
+references:
+  - type: post_mortem
+    value: https://medium.com/cashio/cashio-post-mortem-8ba3f9ef6b0e
+    label: Cashio post mortem
+  - type: post_mortem
+    value: https://medium.com/cashio/cashio-post-mortem-8ba3f9ef6b0e
+    label: Cashio post mortem with on-chain analysis
+  - type: audit
+    value: https://github.com/wormhole-foundation/wormhole/tree/main/ethereum/contracts
+    label: Cross-chain CPI safety references
+tags:
+  - cpi
+  - reentrancy
+  - defi
+  - cashio
