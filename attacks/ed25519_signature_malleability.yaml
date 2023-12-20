@@ -1,0 +1,73 @@
+id: ed25519_signature_malleability
+title: Ed25519 Signature Malleability and Verification Bypass
+severity: high
+tactic: defense_evasion
+technique: signature_malleability
+first_observed: 2020-09
+chain: solana
+affected_programs:
+  - program_id: Ed25519SigVerify111111111111111111111111111
+    role: dependency
+    name: Ed25519 Program
+    notes: On chain signature verification syscall used by custom authorization schemes.
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Native transaction signatures validated at runtime before program execution.
+prerequisites:
+  - Custom program implements off curve or manual ed25519 verification without malleability checks.
+  - Protocol accepts alternate signature encoding for same message hash as valid replay.
+  - Cross program authorization relies on Ed25519Program instruction without canonical S value check.
+  - Indexer or backend deduplicates transactions by signature allowing duplicate effect processing.
+attack_surface:
+  - instruction_handler
+  - off_chain_signature
+  - account_validation
+indicators:
+  on_chain:
+    - Two distinct signatures verify for identical message payload in same slot.
+    - Ed25519Program instruction with S value in upper half of curve order range.
+    - Authorization PDA consumed twice with malleated signature variants.
+    - Off chain oracle accepts secp256k1 or ed25519 signature without low S normalization.
+  off_chain:
+    - Backend webhook fires duplicate settlement for malleated signature pair.
+    - Audit notes missing canonical signature enforcement in custom verify module.
+  account_layout:
+    - Signature verification instruction accounts omit instruction sysvar for intent binding.
+  instruction_discriminators:
+    - Ed25519Program verify instruction
+reproduction_notes: >
+  Generate valid ed25519 signature for test message on local validator. Flip S component to
+  malleated form using curve order subtraction. Submit both signatures against custom program that
+  only checks verify success without low S enforcement. Observe double spend or double mint if
+  program tracks used signatures by exact bytes not message hash. Test Solana runtime transaction
+  signature rejection of malleated forms at ledger level. Document programs using Ed25519Program
+  syscall must enforce canonical signatures per ZIP-215 style rules. Compare ed25519_dalek default
+  behavior in off chain verifiers.
+mitigation:
+  - Reject non canonical S values in custom ed25519 verification paths.
+  - Track consumed message hashes not raw signature bytes for one time authorization.
+  - Bind signatures to instruction context via Instructions sysvar index check.
+  - Use runtime verified transaction signers instead of Ed25519Program where possible.
+  - Backend idempotency keys based on message hash and signer pubkey tuple.
+detection_queries:
+  - "duplicate_message_hash AND distinct_signature_bytes AND same_signer_pubkey"
+  - "Ed25519Verify WHERE s_value > curve_order_half"
+related_entries:
+  - durable_nonce_replay
+  - sysvar_account_spoofing
+references:
+  - type: academic
+    value: https://github.com/zcash/zips/blob/master/zip-0215.md
+    label: ZIP-215 canonical signature rules
+  - type: program_source
+    value: https://github.com/anza-xyz/agave/tree/master/programs/ed25519
+    label: Ed25519 verify program
+  - type: other
+    value: https://docs.solana.com/developing/runtime-facilities/programs#ed25519-program
+    label: Solana ed25519 program documentation
+tags:
+  - ed25519
+  - cryptography
+  - replay
+  - verification

@@ -1,0 +1,76 @@
+id: fake_airdrop
+title: Fake Token Airdrop with Malicious Claim Contract
+severity: high
+tactic: initial_access
+technique: airdrop_lure
+first_observed: 2022-06
+chain: solana
+affected_programs:
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Dust transfers create phantom "new token" notifications in wallets.
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Attacker funds victim ATA rent and memo spam via micro-lamport transfers.
+  - program_id: MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr
+    role: dependency
+    name: Memo Program v2
+    notes: Memo payloads embed phishing URLs in transaction history views.
+prerequisites:
+  - Attacker can cheaply mint worthless SPL tokens or send dust to victim ATAs.
+  - Victim wallet surfaces unknown token receipts without risk scoring.
+  - Claim site or instruction requests signature on malicious SetAuthority, Approve, or program deployment.
+attack_surface:
+  - off_chain_signature
+  - client_ui
+  - instruction_handler
+indicators:
+  on_chain:
+    - Mass TokenAccount creation with identical mint metadata (name/symbol) to legitimate asset.
+    - Claim instruction on unaudited program ID deployed within 72 hours of token mint.
+    - High ratio of empty or single-holder mints linked to same funding wallet cluster.
+    - Transfer of 0.000001 tokens to thousands of wallets from common fee payer.
+  off_chain:
+    - Domains typosquatting official protocol airdrop pages.
+    - Telegram or Discord bots urging "claim before expiry" with non-official links.
+    - Token symbol matches trending ticker but mint address differs from canonical registry.
+  account_layout:
+    - Claim transaction requires user signer plus writable unknown program config accounts.
+    - No verifiable merkle root or official distributor PDA in instruction accounts.
+  instruction_discriminators:
+    - Custom claim discriminator on program with no verified source match
+reproduction_notes: >
+  Mint low-value SPL token on devnet, airdrop to test wallets, deploy claim program that records
+  user pubkey then attempts Approve u64::MAX when user interacts. Measure wallet warning coverage.
+  Build benign control using official merkle distributor pattern (e.g. Saber or Jito airdrop style)
+  with verifiable root posted on-chain. Document forensic diff between legitimate distributor PDAs
+  and attacker-deployed claim contracts.
+mitigation:
+  - Wallets hide or quarantine unverified tokens; never auto-prompt claim for unknown mints.
+  - Blocklist mints and program IDs propagated via community threat intel feeds.
+  - Users verify mint address against project docs; never sign claim txs from social links alone.
+  - Protocols publish canonical distributor program ID and merkle root on official channels.
+  - Indexers tag "dust airdrop" campaigns by funding graph clustering.
+detection_queries:
+  - "new_mint_age < 72h AND holder_count > 10000 AND liquidity == 0"
+  - "claim_program NOT IN verified_distributors AND user_signer_count spike"
+related_entries:
+  - unlimited_approve
+  - nft_phishing_signature
+references:
+  - type: post_mortem
+    value: https://www.blowfish.xyz/blog/solana-airdrop-scams
+    label: Blowfish airdrop scam patterns
+  - type: block_explorer
+    value: https://solscan.io/token
+    label: Token explorer for mint verification
+  - type: other
+    value: https://docs.solana.com/developing/programming-model/transactions
+    label: Solana transaction composition reference
+tags:
+  - phishing
+  - airdrop
+  - social_engineering
+  - spl_token
