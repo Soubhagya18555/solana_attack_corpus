@@ -1,0 +1,74 @@
+id: flash_loan_governance
+title: Flash Loan Governance Vote Manipulation
+severity: critical
+tactic: privilege_escalation
+technique: governance_flash_loan
+first_observed: 2022-03
+chain: solana
+affected_programs:
+  - program_id: Mango1hH2LVL3J3m5Kc9m9hMc6GnTKAHKvZQTk22Hb5W
+    role: governance
+    name: Mango DAO governance
+    notes: Historical governance token vote weight by balance snapshot.
+  - program_id: So1endDq2YkqhipRh3bAQrvHpuBGbfGasCA8DLMCaou
+    role: lending
+    name: Solend lending program
+    notes: Representative flash liquidity source; governance attacks apply to any token with uncooldown vote weight.
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Temporary token balance inflation for vote weight if snapshot is same-slot.
+prerequisites:
+  - Governance tallies voting power by token balance at snapshot slot or at vote cast without lock.
+  - Flash loan source available for governance token on same ledger.
+  - Proposal threshold reachable within one atomic transaction or uncooldown vote window.
+attack_surface:
+  - governance_vote
+  - instruction_handler
+  - account_validation
+indicators:
+  on_chain:
+    - Flash borrow of governance token mint followed by CastVote and repay in one transaction.
+    - Vote weight spike from wallet with zero balance at prior slot.
+    - Proposal passed with single voter holding borrowed supply majority.
+    - SPL Transfer in, governance vote, Transfer out pattern sharing signers and blockhash.
+  off_chain:
+    - Governance forum posts noting unexpected proposal passage with low participation.
+  account_layout:
+    - Vote instruction does not require token lock account or escrow PDA with time constraint.
+    - Missing checkpoint account proving balance held across snapshot epoch.
+  instruction_discriminators:
+    - Protocol-specific CastVote / SubmitVote after flash loan program invoke
+reproduction_notes: >
+  Deploy mock governance token and governor on localnet. Implement naive vote counting using current
+  ATA balance. Wire mock flash loan that mints temporary governance tokens or transfers from pool with
+  same-tx return. Pass malicious proposal in one transaction. Patch with vote escrow (ve-token model),
+  snapshot block height recorded at proposal creation, or require deposit to voting vault with
+  cooldown. Compare Realms (SPL Governance) checkpoint semantics.
+mitigation:
+  - Snapshot voting power at proposal creation slot; reject votes from accounts funded after snapshot.
+  - Require time-locked escrow of governance tokens for voting period duration.
+  - Use Realms with vote record PDAs tied to deposited amounts, not wallet ATA balance.
+  - Quorum and timelock delays before execution; monitor flash loan programs during active votes.
+  - Cap per-wallet vote weight relative to circulating supply excluding flash liquidity pools.
+detection_queries:
+  - "CastVote AND flash_loan_repay_same_tx AND governance_mint"
+  - "vote_power > wallet_balance_slot(snapshot - 1)"
+related_entries:
+  - oracle_manipulation
+  - cpi_reentrancy
+references:
+  - type: program_source
+    value: https://github.com/solana-labs/solana-program-library/tree/master/governance
+    label: SPL Governance (Realms)
+  - type: post_mortem
+    value: https://medium.com/anchorage/flash-loans-and-governance-attacks-86e8b0c8b8b8
+    label: Flash loan governance attack primer
+  - type: academic
+    value: https://arxiv.org/abs/2006.03808
+    label: Flash loans for governance (Ethereum analog, applicable model)
+tags:
+  - governance
+  - flash_loan
+  - dao
+  - defi

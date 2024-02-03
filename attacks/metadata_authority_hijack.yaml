@@ -1,0 +1,75 @@
+id: metadata_authority_hijack
+title: Metaplex Metadata Update Authority Capture
+severity: high
+tactic: persistence
+technique: metadata_authority_abuse
+first_observed: 2022-03
+chain: solana
+affected_programs:
+  - program_id: metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
+    role: nft_marketplace
+    name: Metaplex Token Metadata Program
+    notes: UpdateMetadataAccount and SetAndVerifyCollection mutate NFT display and collection binding.
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: NFT mint account linked to metadata PDA for ownership transfers.
+prerequisites:
+  - Collection or NFT project retains mutable update authority on metadata after mint.
+  - User signs transaction granting update authority to attacker without understanding scope.
+  - Marketplace trusts on chain metadata URI without off chain integrity verification.
+  - Royalty enforcement depends on metadata fields attacker can rewrite post sale.
+attack_surface:
+  - off_chain_signature
+  - client_ui
+  - upgrade_authority
+indicators:
+  on_chain:
+    - UpdateMetadataAccountV2 changing uri to phishing or counterfeit image host.
+    - UpdateAuthority field rotated to single signer wallet from known project multisig.
+    - Collection NFTs mass updated to new uri domain in single slot window.
+    - SetAndVerifyCollection removing verified collection badge from legitimate NFTs.
+  off_chain:
+    - Wallet gallery shows swapped NFT artwork after no user initiated sale.
+    - Marketplace listings display incorrect collection name post metadata refresh.
+  account_layout:
+    - Metadata account writable with update authority not marked signer when required.
+    - Master edition account omitted from transaction allowing unauthorized supply change.
+  instruction_discriminators:
+    - Metaplex UpdateMetadataAccountV2
+    - Metaplex SignMetadata
+reproduction_notes: >
+  Mint NFT on devnet with update authority set to user wallet. Craft transaction user believes is
+  listing approval but includes UpdateMetadataAccountV2 rotating uri to attacker CDN. Observe
+  wallet display of metadata change fields. Test collection wide authority where one signature
+  affects all child metadata accounts. Verify immutability when update authority set to null.
+  Document difference between token owner, metadata update authority, and mint authority. Compare
+  pNFT rule set enforcement versus legacy metadata program paths.
+mitigation:
+  - Set update authority to null after metadata finalization for collectible drops.
+  - Warn prominently when transaction modifies metadata uri or update authority fields.
+  - Cache verified metadata hash at first observation; flag on chain uri drift.
+  - Use programmable NFT rules for enforced royalty and metadata immutability where applicable.
+  - Monitor UpdateMetadataAccount instructions for high value collection mints.
+detection_queries:
+  - "UpdateMetadataAccountV2 WHERE uri_domain NOT IN project_allowlist"
+  - "update_authority_change AND collection_floor_value > threshold"
+related_entries:
+  - nft_phishing_signature
+  - program_upgrade_hijack
+  - fake_airdrop
+references:
+  - type: program_source
+    value: https://github.com/metaplex-foundation/mpl-token-metadata
+    label: Metaplex token metadata program
+  - type: block_explorer
+    value: https://solscan.io/account/metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
+    label: Token metadata program
+  - type: post_mortem
+    value: https://www.metaplex.com/blog
+    label: Metaplex security advisories
+tags:
+  - nft
+  - metaplex
+  - metadata
+  - social_engineering
