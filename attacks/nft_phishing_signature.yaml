@@ -1,0 +1,77 @@
+id: nft_phishing_signature
+title: NFT Marketplace Phishing via Blind Transaction Signing
+severity: high
+tactic: initial_access
+technique: signature_phishing
+first_observed: 2022-04
+chain: solana
+affected_programs:
+  - program_id: M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K
+    role: nft_marketplace
+    name: Magic Eden v2
+    notes: Legitimate marketplace program impersonated in phishing txs with substituted account metas.
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: setAuthority on metadata or token accounts drains NFT custody.
+  - program_id: metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
+    role: dependency
+    name: Metaplex Token Metadata
+    notes: updateAuthority field targeted for collection hijack.
+prerequisites:
+  - Victim approves transaction based on UI label ("List NFT", "Claim reward") not inner instruction decode.
+  - Phishing dApp constructs tx calling malicious program or delegating updateAuthority.
+  - Wallet fails to simulate or surface hidden SPL SetAuthority / Transfer instructions.
+attack_surface:
+  - off_chain_signature
+  - client_ui
+  - rpc_simulation_gap
+indicators:
+  on_chain:
+    - Transaction labeled as marketplace list but program ID differs from official Magic Eden or Tensor deployment.
+    - SetAuthority on metadata account with new updateAuthority equal to attacker wallet.
+    - Bulk NFT transfers from victim to consolidation wallet within seconds of single signature.
+    - Memo or log strings mimicking "Magic Eden" while invoked program is unknown.
+  off_chain:
+    - Discord DM or Twitter DM with "exclusive mint" or "offer acceptance" links.
+    - Browser extension requesting connect to non-official domain.
+    - PDF or QR "bid acceptance" leading to wallet connect on attacker origin.
+  account_layout:
+    - User NFT token account writable with authority change instruction buried at CPI depth 3+.
+    - Missing marketplace fee recipient accounts present in genuine listings.
+  instruction_discriminators:
+    - Metaplex UpdateMetadataAccountV2
+    - SPL Token Approve with NFT mint decimals 0
+reproduction_notes: >
+  Build static phishing page on localhost that requests wallet connect and submits transaction
+  containing SetAuthority on test NFT mint metadata to attacker pubkey. Compare legitimate Magic Eden
+  list instruction account list (marketplace, auction house, token accounts) versus phishing variant
+  with substituted program. Test wallet simulation APIs: which hide CPI? Document forensic recovery:
+  trace updateAuthority changes on metadata PDAs via Metaplex explorers.
+mitigation:
+  - Wallets must show program IDs, all signers, and every inner instruction effect on NFT ownership.
+  - Users verify domain against official marketplace link lists; never sign from DMs.
+  - Hardware wallet screen review for authority-changing instructions.
+  - Marketplaces publish official program IDs and transaction templates for integrators.
+  - Monitor metadata updateAuthority drift for high-value collections; alert holders.
+detection_queries:
+  - "SetAuthority OR UpdateMetadataAccount WHERE new_authority NOT IN marketplace_allowlist"
+  - "nft_transfer AND program_id NOT IN {magic_eden, tensor, hyperspace}"
+related_entries:
+  - unlimited_approve
+  - fake_airdrop
+references:
+  - type: post_mortem
+    value: https://www.halborn.com/blog/post/solana-wallet-drainers-how-they-work-and-how-to-stay-safe
+    label: Wallet drainer mechanics overview
+  - type: block_explorer
+    value: https://solscan.io/account/M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K
+    label: Magic Eden v2 program account
+  - type: program_source
+    value: https://github.com/metaplex-foundation/mpl-token-metadata
+    label: Metaplex token metadata program
+tags:
+  - nft
+  - phishing
+  - wallet_drainer
+  - metaplex

@@ -1,0 +1,75 @@
+id: oracle_manipulation
+title: On-Chain Oracle Price Manipulation via Thin Liquidity
+severity: critical
+tactic: impact
+technique: oracle_twap_distortion
+first_observed: 2022-10
+chain: solana
+affected_programs:
+  - program_id: 4MangoMjqJ2firMokCjjGgoK8sd4tpVLo1EFyu6v9
+    role: victim
+    name: Mango Markets v3
+    notes: October 2022 incident; MNGO spot price on internal order book used for collateral valuation.
+  - program_id: FsJ3A3u2vn5cTVofAjvy6y5kwABJAqYWpe4975bi2epH
+    role: oracle
+    name: Pyth Oracle Program
+    notes: Reference oracle architecture; manipulation often targets bespoke or thin pools not Pyth directly.
+  - program_id: SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt
+    role: dependency
+    name: OpenBook / Serum DEX program
+    notes: Spot markets provide price feeds when protocols read last trade or mid price without TWAP guards.
+prerequisites:
+  - Lending or perp protocol reads spot price from manipulable on-chain source (AMM reserve ratio, last trade, thin order book).
+  - Attacker capital to move price within single slot or oracle update window.
+  - Insufficient staleness checks, confidence intervals, or multi-source aggregation.
+attack_surface:
+  - oracle_feed
+  - account_validation
+  - instruction_handler
+indicators:
+  on_chain:
+    - Large swap on low-liquidity pool immediately before borrow, mint, or liquidate on lending program.
+    - Oracle account price field diverges >20% from aggregated CEX reference within one slot.
+    - Wallet cluster profits on perp position open and collateral withdraw in same transaction bundle.
+    - MNGO or equivalent thin-market asset used as collateral with abnormal mark price spike.
+  off_chain:
+    - Incident timelines showing price spike duration under one second on chain explorers.
+  account_layout:
+    - Lending instruction references spot market account without Pyth price update account in same tx.
+    - Oracle account slot lag exceeds protocol max_staleness but transaction still succeeds (config bug).
+  instruction_discriminators:
+    - Mango PlacePerpOrder / Withdraw discriminator sequences adjacent to DEX swap logs
+reproduction_notes: >
+  Fork Mango or simplified lending program on localnet with internal spot price. Use attacker wallet
+  to wash trade thin token on mock order book, then borrow max USDC against inflated collateral
+  valuation. Measure profit versus capital required. Implement mitigation branch with Pyth
+  pull oracle, EMA TWAP, and confidence-weighted rejection. Document slot boundaries: Solana
+  transactions are atomic but oracle update cadence creates race windows across transactions.
+mitigation:
+  - Use decentralized oracle networks (Pyth, Switchboard) with confidence and staleness guards.
+  - TWAP over multiple slots; cap single-slot price movement for collateral assets.
+  - Liquidity-weighted price sources; reject assets below minimum depth thresholds.
+  - Circuit breakers pausing borrows when oracle deviation exceeds policy.
+  - Independent off-chain monitoring comparing on-chain marks to CEX aggregates.
+detection_queries:
+  - "borrow_usd > collateral_usd_fair * 0.8 AND prior_slot_swap_impact > 15%"
+  - "oracle_staleness_slots > max_allowed"
+related_entries:
+  - flash_loan_governance
+  - cpi_reentrancy
+references:
+  - type: post_mortem
+    value: https://docs.mango.markets/mango-markets/bug-bounty/mango-explorer-incident
+    label: Mango Markets incident documentation
+  - type: post_mortem
+    value: https://www.certik.com/resources/blog/mango-markets-exploit-analysis
+    label: Third-party Mango exploit transaction analysis
+  - type: program_source
+    value: https://github.com/blockworks-foundation/mango-v4
+    label: Mango v4 program (successor architecture)
+tags:
+  - defi
+  - lending
+  - mango
+  - oracle
+  - perp
