@@ -1,0 +1,74 @@
+id: program_upgrade_hijack
+title: Upgradable Program Authority Hijack and Malicious Upgrade
+severity: critical
+tactic: persistence
+technique: bpf_loader_upgrade_abuse
+first_observed: 2022-01
+chain: solana
+affected_programs:
+  - program_id: BPFLoaderUpgradeab1e11111111111111111111111
+    role: loader
+    name: BPF Upgradeable Loader
+    notes: Governs program buffer deployment and upgrade via upgrade authority signer.
+  - program_id: 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8
+    role: victim
+    name: Raydium AMM v4
+    notes: Historical deployments used upgradeable loader; authority compromise equals full logic replacement.
+  - program_id: 9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP
+    role: victim
+    name: Orca Whirlpool
+    notes: Upgrade authority must be secured; public ID for reference architecture.
+prerequisites:
+  - Program deployed with BPF Upgradeable Loader, not immutable loader.
+  - Upgrade authority private key compromised, held by single signer, or stored on hot server.
+  - Attacker can submit Upgrade instruction with malicious buffer containing revised bytecode.
+attack_surface:
+  - upgrade_authority
+  - loader
+  - instruction_handler
+indicators:
+  on_chain:
+    - Upgrade or SetAuthority on ProgramData account without corresponding governance vote transaction.
+    - Program buffer account funded and written immediately before Upgrade in same slot cluster.
+    - Sudden change in instruction discriminator handling or new withdrawal paths post upgrade.
+    - Program executable flag toggled via DeployWithMaxDataLen on unrelated buffer.
+  off_chain:
+    - GitHub release tag does not match on-chain program hash (verified build mismatch).
+    - Community reports unexpected behavior hours after silent upgrade.
+  account_layout:
+    - Upgrade instruction includes attacker wallet as upgrade authority signer without multisig.
+    - Buffer account authority distinct from known CI deployer pubkey.
+  instruction_discriminators:
+    - BPF Loader Upgrade instruction (loader-specific, not Anchor discriminator)
+reproduction_notes: >
+  On localnet deploy sample program with upgradeable loader. Hold upgrade authority on test key.
+  Deploy buffer with altered logic (e.g. additional lamport transfer). Submit Upgrade and confirm
+  behavior change without redeploying program ID. Practice verified builds with solana-verify or
+  Ellipsis Labs tooling to compare ELF hash. Demonstrate migration to immutable loader by setting
+  upgrade authority to null only when governance intends immutability.
+mitigation:
+  - Store upgrade authority in multisig with timelock and public announcement policy.
+  - Publish verified build hashes; monitor ProgramData account for unauthorized Upgrade.
+  - Consider immutable deployment for mature, high-value programs after audit stabilization.
+  - Runtime monitors alert on Upgrade instructions for allowlisted protocol program IDs.
+  - Separate buffer write authority from production upgrade authority where possible.
+detection_queries:
+  - "bpf_upgrade(program_id IN treasury_programs) AND upgrade_authority NOT IN multisig_members"
+  - "program_buffer_written AND upgraded_within_slots < 10"
+related_entries:
+  - authority_drain
+  - oracle_manipulation
+references:
+  - type: program_source
+    value: https://github.com/solana-labs/solana/blob/master/programs/bpf_loader/src/lib.rs
+    label: BPF loader source
+  - type: block_explorer
+    value: https://solscan.io/account/BPFLoaderUpgradeab1e11111111111111111111111
+    label: Upgradeable loader account
+  - type: audit
+    value: https://blog.neodyme.io/posts/solana_upgrade_authority/
+    label: Neodyme upgrade authority analysis
+tags:
+  - bpf_loader
+  - supply_chain
+  - program_integrity

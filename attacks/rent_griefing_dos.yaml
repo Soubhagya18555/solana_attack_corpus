@@ -1,0 +1,74 @@
+id: rent_griefing_dos
+title: Account Rent Griefing and Protocol Denial of Service
+severity: medium
+tactic: impact
+technique: rent_griefing
+first_observed: 2022-01
+chain: solana
+affected_programs:
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: CreateAccount and Transfer fund rent exempt minimums for attacker spawned accounts.
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Associated token account creation multiplies per user griefing cost for protocols.
+prerequisites:
+  - Protocol iterates unbounded user supplied accounts or PDA lists per instruction.
+  - Attacker creates large number of dust accounts or ATAs linked to protocol PDAs.
+  - Program lacks account count limits or rent prepayment requirements from caller.
+  - Keeper or crank pays transaction fees for processing unbounded account creation.
+attack_surface:
+  - instruction_handler
+  - account_validation
+  - governance_vote
+indicators:
+  on_chain:
+    - Sudden spike in CreateAccount instructions targeting protocol seed namespace.
+    - Protocol instruction failures with AccountNotRentExempt or compute exhaustion.
+    - Thousands of zero balance ATAs owned by same fee payer associated with one protocol PDA.
+    - Crank transactions failing after account iteration exceeds compute budget.
+  off_chain:
+    - Indexer OOM or timeout when loading protocol user registry.
+    - Governance vote quorum unreachable due to spam delegate accounts.
+  account_layout:
+    - Instruction carries max account metas with duplicate program IDs.
+    - Writable accounts include attacker PDAs sharing prefix with legitimate vault seeds.
+  instruction_discriminators:
+    - System CreateAccount
+    - ATA CreateAssociatedTokenAccount
+reproduction_notes: >
+  Identify protocol instruction that loops over remaining accounts without cap. On devnet, script
+  creation of 200 PDAs under shared prefix using minimal lamport rent. Invoke victim crank or settle
+  instruction measuring compute unit consumption per account. Demonstrate DoS when iteration exceeds
+  transaction compute limit. Test mitigation with max_accounts parameter and upfront rent deposit
+  slashing. Measure economic cost to attacker versus protocol disruption. Document rent recovery
+  via close account if protocol stores attacker owned account keys.
+mitigation:
+  - Cap number of accounts processed per instruction; paginate batch operations.
+  - Require rent prepayment or stake bond from account creators tied to protocol namespace.
+  - Close idle accounts via permissionless crank with fee incentive to recyclers.
+  - Rate limit account creation per signer using protocol level nonce or cooldown PDA.
+  - Monitor account count growth anomalies per program ID.
+detection_queries:
+  - "CreateAccount WHERE seed_prefix = protocol_namespace AND count_per_hour > baseline * 10"
+  - "program_instruction_failed ComputeBudgetExceeded AND account_count > 30"
+related_entries:
+  - fake_airdrop
+  - flash_loan_governance
+references:
+  - type: academic
+    value: https://docs.solana.com/developing/programming-model/accounts
+    label: Solana account model documentation
+  - type: program_source
+    value: https://github.com/anza-xyz/agave/tree/master/programs/system
+    label: System program source
+  - type: other
+    value: https://docs.solana.com/developing/intro/rent
+    label: Solana rent documentation
+tags:
+  - dos
+  - rent
+  - griefing
+  - compute_budget
