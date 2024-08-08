@@ -1,0 +1,74 @@
+id: sysvar_account_spoofing
+title: Sysvar Account Substitution in Instruction Context
+severity: critical
+tactic: defense_evasion
+technique: sysvar_spoofing
+first_observed: 2021-03
+chain: solana
+affected_programs:
+  - program_id: Sysvar1111111111111111111111111111111111111
+    role: dependency
+    name: Sysvar Program
+    notes: Well known sysvar addresses must be validated by consuming programs.
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Attacker creates fake account with sysvar-like data layout.
+prerequisites:
+  - Victim program reads Clock, Rent, or Instructions sysvar from user supplied account without address check.
+  - Attacker creates custom account mimicking sysvar data layout with forged slot or timestamp.
+  - Instruction handler branches on sysvar fields for authorization or rate limiting.
+  - Program deployed before Anchor sysvar constraints were standardized in codebase.
+attack_surface:
+  - account_validation
+  - instruction_handler
+  - pda_derivation
+indicators:
+  on_chain:
+    - Account named as sysvar in IDL but pubkey not matching canonical sysvar address.
+    - Program accepts expired or future dated clock values enabling time lock bypass.
+    - Instructions sysvar index manipulation hiding preceding malicious instruction.
+    - Rent sysvar spoof allowing underfunded account creation that fails later.
+  off_chain:
+    - Audit report flags missing sysvar address constant comparison.
+    - Fuzz test logs show program success with attacker owned sysvar substitute.
+  account_layout:
+    - Sysvar account not owned by sysvar program or incorrect data length.
+    - Clock account with slot number far ahead of cluster median.
+  instruction_discriminators:
+    - Custom program read without sysvar address guard
+reproduction_notes: >
+  Deploy vulnerable program on local validator that loads Clock sysvar from accounts[0] without
+  pubkey check. Create regular account, serialize forged Clock struct with slot set to max u64.
+  Invoke victim instruction that unlocks vault when clock slot exceeds threshold. Confirm exploit
+  succeeds with fake account. Patch with constraint address = Clock::id() and re-test failure.
+  Repeat for Instructions sysvar to hide prior instruction in same transaction. Document Anchor
+  account types Sysvar and explicit address checks. Compare performance cost of sysvar syscall
+  versus account load.
+mitigation:
+  - Hardcode canonical sysvar pubkeys; reject any mismatch at instruction entry.
+  - Prefer syscall API for clock and rent where BPF version permits.
+  - Static analysis rule for account types named Sysvar without address attribute.
+  - Integration tests passing fake sysvar accounts expecting instruction failure.
+  - Code review checklist item for every sysvar load in legacy programs.
+detection_queries:
+  - "program_invocation WHERE clock_account_owner != Sysvar1111111111111111111111111111111111111"
+  - "vault_unlock AND clock_slot > network_median_slot + threshold"
+related_entries:
+  - cpi_reentrancy
+  - oracle_manipulation
+references:
+  - type: program_source
+    value: https://github.com/coral-xyz/sealevel-attacks/tree/master/programs/sysvar
+    label: Sealevel attacks sysvar spoofing example
+  - type: academic
+    value: https://docs.solana.com/developing/runtime-facilities/sysvars
+    label: Solana sysvar documentation
+  - type: audit
+    value: https://github.com/coral-xyz/sealevel-attacks
+    label: Sealevel attacks catalog
+tags:
+  - sysvar
+  - account_validation
+  - time_lock_bypass
+  - anchor

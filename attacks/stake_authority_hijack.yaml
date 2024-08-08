@@ -1,0 +1,77 @@
+id: stake_authority_hijack
+title: Stake Account Authority Hijack and Forced Delegation
+severity: critical
+tactic: privilege_escalation
+technique: stake_authority_abuse
+first_observed: 2021-11
+chain: solana
+affected_programs:
+  - program_id: Stake11111111111111111111111111111111111111
+    role: dependency
+    name: Stake Program
+    notes: Authorize, DelegateStake, and Withdraw instructions mutate stake account meta.
+  - program_id: 11111111111111111111111111111111
+    role: system_program
+    name: System Program
+    notes: Funds stake account creation and rent transfers during authority rotation attacks.
+prerequisites:
+  - Victim stake account staked authority or withdrawer authority exposed via custodial bug or phishing.
+  - Staking dashboard passes attacker-controlled authority account without signer validation.
+  - User signs Authorize instruction believing it adjusts rewards preference not authority transfer.
+  - Optional compromised validator identity targeted for forced delegation to attacker vote account.
+attack_surface:
+  - instruction_handler
+  - account_validation
+  - off_chain_signature
+  - client_ui
+indicators:
+  on_chain:
+    - Authorize instruction changing Staker or Withdrawer to new pubkey in same tx as DelegateStake.
+    - Stake account meta field change followed by immediate withdraw exceeding rewards-only amount.
+    - Burst of Authorize events from custodial hot wallet to single collector authority.
+    - DelegateStake to vote account with zero history and low stake weight.
+  off_chain:
+    - Staking UI labels Authorize as "optimize APY" without showing new authority pubkey.
+    - Support tickets reporting unstakable stake after connecting to fake staking site.
+  account_layout:
+    - Stake account writable without stake authority marked signer when required.
+    - Vote account passed from unverified lookup table index.
+  instruction_discriminators:
+    - Stake Authorize opcode
+    - Stake DelegateStake opcode
+    - Stake Withdraw opcode
+reproduction_notes: >
+  On devnet, fund stake account and delegate to known validator. Craft transaction with Authorize
+  setting withdrawer to attacker key then DelegateStake to attacker vote account in one atomic bundle.
+  Test custodial wrapper that omits signer check on current stake authority account. Compare ledger
+  enforcement when only staker authority is required versus withdrawer for fund exit. Simulate
+  phishing page requesting signature on Authorize with obfuscated account meta list. Measure time
+  from authority change to full stake withdrawal. Document lockup epoch constraints that delay but
+  do not prevent theft of withdrawer authority.
+mitigation:
+  - Display full stake authority and withdrawer pubkeys on any Authorize signing screen.
+  - Block DelegateStake to vote accounts below reputation and age threshold in custodial products.
+  - Alert users on any Authorize instruction regardless of claimed UI purpose.
+  - Monitor stake program instructions for custodial wallets at scale.
+  - Require multisig or timelock for withdrawer authority changes on institutional stake accounts.
+detection_queries:
+  - "Stake Authorize(Withdrawer) AND DelegateStake_new_vote_account_age < 7_days"
+  - "custodial_hot_wallet AND stake_withdraw > daily_baseline"
+related_entries:
+  - authority_drain
+  - nft_phishing_signature
+references:
+  - type: program_source
+    value: https://github.com/anza-xyz/agave/tree/master/programs/stake
+    label: Stake program source
+  - type: block_explorer
+    value: https://solscan.io/account/Stake11111111111111111111111111111111111111
+    label: Stake program account
+  - type: audit
+    value: https://github.com/solana-program/stake
+    label: Solana stake program repository
+tags:
+  - stake
+  - authority_rotation
+  - custodial
+  - delegation
