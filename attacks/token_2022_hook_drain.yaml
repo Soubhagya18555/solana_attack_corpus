@@ -1,0 +1,76 @@
+id: token_2022_hook_drain
+title: Token 2022 Transfer Hook Arbitrary CPI Drain
+severity: critical
+tactic: lateral_movement
+technique: transfer_hook_abuse
+first_observed: 2024-02
+chain: solana
+affected_programs:
+  - program_id: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+    role: token_program
+    name: Token 2022 Program
+    notes: Transfer hook extension invokes external program on every token transfer.
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Legacy tokens without hooks used as decoy in same transaction bundle.
+prerequisites:
+  - User holds Token 2022 asset with transfer hook pointing to attacker program.
+  - Wallet simulation omits hook CPI tree or shows generic "transfer" label.
+  - User approves sell or send transaction not recognizing hook side effects.
+  - Hook program performs delegate approval or SOL drain via shared accounts.
+attack_surface:
+  - cpi_boundary
+  - client_ui
+  - rpc_simulation_gap
+  - token_authority
+indicators:
+  on_chain:
+    - Token 2022 transfer followed by inner CPI to unknown program ID from hook execution.
+    - Approve or SetAuthority in hook CPI not visible in outer instruction preview.
+    - Mint with TransferHook extension targeting recently deployed unverified program.
+    - Hook program ID changed via UpdateTransferHook after initial token distribution.
+  off_chain:
+    - Token list metadata omits hook program warning.
+    - User receives spam Token 2022 airdrop with malicious hook configured at mint time.
+  account_layout:
+    - Extra accounts required for hook not displayed in wallet UI account list.
+    - Hook program marked executable and writable in same transaction as user transfer.
+  instruction_discriminators:
+    - Token 2022 TransferChecked with hook extension
+    - Token 2022 SetTransferHook
+reproduction_notes: >
+  Mint Token 2022 asset on devnet with transfer hook program that CPIs Approve on user ATA during
+  transfer. Construct UI-facing transaction labeled as simple send. Run simulation with and without
+  inner instruction expansion. Observe wallet display when hook CPI grants unlimited delegate to
+  attacker program. Test UpdateTransferHook by mint authority after users acquired token. Compare
+  detection when hook program is immutable versus upgradeable loader. Document required extra account
+  metas in TransferHook account resolution. Do not deploy malicious hooks to mainnet mints.
+mitigation:
+  - Expand full CPI tree including transfer hook executions in simulation preview.
+  - Block or warn on tokens whose hook program is not on protocol allowlist.
+  - Flag SetAuthority and Approve inner instructions regardless of outer label.
+  - Index TransferHook extension at mint creation; alert on hook program upgrades.
+  - Default hide unknown Token 2022 assets until user explicitly opts in.
+detection_queries:
+  - "Token2022 Transfer AND inner_approve_to_unknown_program"
+  - "UpdateTransferHook WHERE mint_age > 24h AND holder_count > 100"
+related_entries:
+  - unlimited_approve
+  - fake_airdrop
+  - cpi_reentrancy
+references:
+  - type: program_source
+    value: https://github.com/solana-labs/solana-program-library/tree/master/token/program-2022
+    label: Token 2022 program source
+  - type: academic
+    value: https://spl.solana.com/token-2022/extensions
+    label: Token 2022 extensions documentation
+  - type: block_explorer
+    value: https://solscan.io/account/TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+    label: Token 2022 program
+tags:
+  - token_2022
+  - transfer_hook
+  - cpi
+  - drainer

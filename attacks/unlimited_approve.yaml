@@ -1,0 +1,75 @@
+id: unlimited_approve
+title: Unlimited SPL Token Delegate Approval Drain
+severity: critical
+tactic: credential_access
+technique: delegate_approval_abuse
+first_observed: 2022-03
+chain: solana
+affected_programs:
+  - program_id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+    role: token_program
+    name: SPL Token Program
+    notes: Approve instruction sets delegate with u64::MAX allowance.
+  - program_id: JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4
+    role: dependency
+    name: Jupiter Aggregator v6
+    notes: Malicious routers can chain swaps after approval in same transaction batch.
+prerequisites:
+  - User grants Approve or ApproveChecked with maximum u64 delegate amount.
+  - Delegate account controlled by attacker program or EOA.
+  - Sufficient token balance remains in victim ATA at time of TransferChecked invocation.
+attack_surface:
+  - off_chain_signature
+  - client_ui
+  - instruction_handler
+  - token_authority
+indicators:
+  on_chain:
+    - Approve or ApproveChecked with amount 18446744073709551615 (u64::MAX).
+    - Transfer or TransferChecked from victim ATA where authority is delegate not owner.
+    - Single transaction containing Approve immediately followed by TransferChecked to attacker ATA.
+    - Recurring micro-approvals from dormant wallets reactivated by drainer infrastructure.
+  off_chain:
+    - Wallet simulation shows benign swap but inner instructions include Approve to unknown program-owned account.
+    - Phishing site mimicking Jupiter, Raydium, or Magic Eden approval flow.
+    - "Revoke pending" UX that never calls Revoke on chain.
+  account_layout:
+    - Delegate pubkey is program-owned PDA with no public audit or known protocol deployment.
+    - Owner wallet is signer only on outer instruction; inner CPI carries approval side effect.
+  instruction_discriminators:
+    - SPL Token Approve opcode 4
+    - SPL Token ApproveChecked opcode 13
+reproduction_notes: >
+  On devnet, create attacker wallet A and victim wallet V with funded ATAs. Victim signs a
+  crafted transaction that Approve delegate=A for u64::MAX on USDC devnet mint. Attacker later
+  submits TransferChecked signed only by A as delegate. Extend lab with same-transaction bundling:
+  victim signs swap-like outer tx while inner CPI performs Approve to drainer PDA. Compare wallet
+  parsers that surface inner SPL instructions versus those that hide CPI depth. Test Revoke
+  preflight UX and blockhash expiry behavior.
+mitigation:
+  - Wallets should display delegate pubkey, approved amount, and mint for every Approve instruction.
+  - Prefer exact-amount ApproveChecked over unlimited Approve; auto-Revoke after single use where possible.
+  - Protocols should use ephemeral delegate PDAs scoped to one instruction via transaction introspection.
+  - Indexers and security extensions flag u64::MAX approvals to unknown delegates.
+  - Users periodically audit token accounts via solana account decode or revoke.cash equivalent tooling.
+detection_queries:
+  - "Approve.amount == MAX_U64 AND delegate NOT IN known_routers"
+  - "TransferChecked WHERE authority_is_delegate AND delegate_age < 24h"
+related_entries:
+  - authority_drain
+  - fake_airdrop
+  - nft_phishing_signature
+references:
+  - type: program_source
+    value: https://github.com/solana-labs/solana-program-library/blob/master/token/program/src/processor.rs
+    label: SPL Token Approve processor
+  - type: post_mortem
+    value: https://slowmist.medium.com/analysis-of-solana-approval-phishing-attack-82e4092a1b2f
+    label: SlowMist approval phishing analysis
+  - type: block_explorer
+    value: https://solscan.io/instruction/Approve
+    label: Approve instruction reference
+tags:
+  - spl_token
+  - wallet_drainer
+  - delegate
