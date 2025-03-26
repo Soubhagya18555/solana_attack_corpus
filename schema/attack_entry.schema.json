@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Soubhagya18555/solana_attack_corpus/schema/attack_entry.schema.json",
+  "title": "Solana Attack Corpus Entry",
+  "description": "Structured representation of a Solana on-chain attack technique, incident pattern, or exploit class.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "severity",
+    "affected_programs",
+    "indicators",
+    "reproduction_notes",
+    "mitigation",
+    "references"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{2,63}$",
+      "description": "Stable snake_case identifier for cross-referencing taxonomy and tooling."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 120,
+      "description": "Human-readable attack name."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "informational"],
+      "description": "Maximum plausible impact when successfully executed against an unmitigated target."
+    },
+    "tactic": {
+      "type": "string",
+      "description": "Primary ATT&CK-style tactic (e.g. initial_access, privilege_escalation)."
+    },
+    "technique": {
+      "type": "string",
+      "description": "Technique identifier within the corpus taxonomy."
+    },
+    "first_observed": {
+      "type": "string",
+      "pattern": "^[0-9]{4}(-[0-9]{2})?(-[0-9]{2})?$",
+      "description": "Earliest public observation date (YYYY, YYYY-MM, or YYYY-MM-DD)."
+    },
+    "chain": {
+      "type": "string",
+      "const": "solana",
+      "description": "Target blockchain."
+    },
+    "affected_programs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["program_id", "role"],
+        "additionalProperties": false,
+        "properties": {
+          "program_id": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 44,
+            "description": "Base58 Solana program public key."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "victim",
+              "attacker_controlled",
+              "dependency",
+              "oracle",
+              "token_program",
+              "system_program",
+              "loader",
+              "governance",
+              "nft_marketplace",
+              "lending",
+              "bridge",
+              "other"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Public program or protocol name when known."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Context for how this program participates in the attack."
+          }
+        }
+      }
+    },
+    "prerequisites": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Conditions required before the attack can succeed."
+    },
+    "attack_surface": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "instruction_handler",
+          "cpi_boundary",
+          "account_validation",
+          "pda_derivation",
+          "upgrade_authority",
+          "token_authority",
+          "oracle_feed",
+          "governance_vote",
+          "off_chain_signature",
+          "client_ui",
+          "rpc_simulation_gap"
+        ]
+      }
+    },
+    "indicators": {
+      "type": "object",
+      "required": ["on_chain", "off_chain"],
+      "additionalProperties": false,
+      "properties": {
+        "on_chain": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Observable transaction, account, or log patterns."
+        },
+        "off_chain": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Phishing domains, social engineering cues, wallet prompts."
+        },
+        "account_layout": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Suspicious account ordering, signer bitmap, or writable flags."
+        },
+        "instruction_discriminators": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Hex or base58 instruction prefixes tied to malicious flows."
+        }
+      }
+    },
+    "reproduction_notes": {
+      "type": "string",
+      "minLength": 100,
+      "description": "Controlled lab reproduction steps. No live mainnet exploitation guidance."
+    },
+    "mitigation": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Defensive controls at program, wallet, and operational layers."
+    },
+    "detection_queries": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Heuristic rules for indexers, SIEM, or runtime monitors."
+    },
+    "related_entries": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{2,63}$"
+      }
+    },
+    "references": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "post_mortem",
+              "audit",
+              "tx_signature",
+              "program_source",
+              "block_explorer",
+              "academic",
+              "cve",
+              "other"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "description": "URL, signature, CVE ID, or citation string."
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
